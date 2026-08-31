@@ -78,6 +78,9 @@ struct AddArgs {
     arch: String,
     #[arg(long, value_enum, default_value_t = InstallerType::Raw)]
     installer_type: InstallerType,
+    /// Replace an existing artifact for the same OS/arch when the payload differs.
+    #[arg(long)]
+    replace: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -158,6 +161,7 @@ fn run_add(args: AddArgs, forced_kind: Option<FeatureKind>) -> Result<()> {
         arch: args.arch,
         installer_type: args.installer_type.as_str().to_owned(),
         forced_kind,
+        replace_existing: args.replace,
     };
     add_artifact(&options, &key)?;
     println!("Added artifact and regenerated repository metadata");

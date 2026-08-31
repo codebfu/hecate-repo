@@ -252,7 +252,8 @@ fi
   --artifact "$artifact" \
   --os "$artifact_os" \
   --arch "$artifact_arch" \
-  --installer-type "$installer_type"
+  --installer-type "$installer_type" \
+  --replace
 "$binary" prune --repo "$work_dir"
 
 # Do not --delete pool: local work dir has metadata (+ the new artifact) only; wiping remote

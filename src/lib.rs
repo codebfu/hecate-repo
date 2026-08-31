@@ -156,6 +156,8 @@ pub struct AddOptions {
     pub arch: String,
     pub installer_type: String,
     pub forced_kind: Option<FeatureKind>,
+    /// Replace an existing artifact for the same OS/arch when the payload differs.
+    pub replace_existing: bool,
 }
 
 pub fn signing_key_from_env() -> Result<SigningKey> {
@@ -279,15 +281,16 @@ pub fn add_artifact(options: &AddOptions, key: &SigningKey) -> Result<()> {
         incoming
     };
 
-    if let Some(existing_artifact) = manifest
+    if let Some(existing_index) = manifest
         .artifacts
         .iter()
-        .find(|artifact| artifact.os == options.os && artifact.arch == options.arch)
+        .position(|artifact| artifact.os == options.os && artifact.arch == options.arch)
     {
         let incoming_sha = sha256_hex(&artifact_bytes);
-        if existing_artifact.sha256 == incoming_sha
-            && existing_artifact.filename == filename
-            && existing_artifact.installer_type == options.installer_type
+        let existing = &manifest.artifacts[existing_index];
+        if existing.sha256 == incoming_sha
+            && existing.filename == filename
+            && existing.installer_type == options.installer_type
         {
             // Idempotent re-publish: still ensure fleet update_signature is present.
             let updated = backfill_manifest_update_signatures(&mut manifest, key)?;
@@ -297,13 +300,14 @@ pub fn add_artifact(options: &AddOptions, key: &SigningKey) -> Result<()> {
             regenerate_index(&options.repo, key)?;
             return Ok(());
         }
-        bail!(
-            "an artifact already exists for {} {} {} {}",
-            manifest.id,
-            manifest.version,
-            options.os,
-            options.arch
-        );
+        if !options.replace_existing {
+            bail!(
+                "an artifact already exists for {} {} {} {}",
+                manifest.id, manifest.version, options.os, options.arch
+            );
+        }
+        let replaced = manifest.artifacts.remove(existing_index);
+        remove_stored_artifact(&version_dir, &replaced)?;
     }
 
     let destination_dir = version_dir.join(&options.os).join(&options.arch);
@@ -316,10 +320,17 @@ pub fn add_artifact(options: &AddOptions, key: &SigningKey) -> Result<()> {
             regenerate_index(&options.repo, key)?;
             return Ok(());
         }
-        bail!(
-            "artifact destination already exists: {}",
-            destination.display()
-        );
+        if !options.replace_existing {
+            bail!(
+                "artifact destination already exists: {}",
+                destination.display()
+            );
+        }
+        fs::remove_file(&destination)?;
+        let sig = signature_path(&destination);
+        if sig.exists() {
+            fs::remove_file(&sig)?;
+        }
     }
 
     let sha256 = sha256_hex(&artifact_bytes);
@@ -623,6 +634,21 @@ fn write_signed_json<T: Serialize>(path: &Path, value: &T, key: &SigningKey) -> 
     write_signature(path, key)
 }
 
+fn remove_stored_artifact(version_dir: &Path, artifact: &Artifact) -> Result<()> {
+    let path = version_dir
+        .join(&artifact.os)
+        .join(&artifact.arch)
+        .join(&artifact.filename);
+    if path.exists() {
+        fs::remove_file(&path)?;
+    }
+    let sig = signature_path(&path);
+    if sig.exists() {
+        fs::remove_file(&sig)?;
+    }
+    Ok(())
+}
+
 fn write_signature(path: &Path, key: &SigningKey) -> Result<()> {
     let bytes = fs::read(path)?;
     fs::write(signature_path(path), sign_bytes(key, &bytes))?;
@@ -733,6 +759,19 @@ mod tests {
             arch: "x86_64".to_owned(),
             installer_type: "raw".to_owned(),
             forced_kind: None,
+            replace_existing: false,
+        }
+    }
+
+    fn add_options_with_replace(
+        repo: &Path,
+        manifest: &Path,
+        artifact: &Path,
+        replace_existing: bool,
+    ) -> AddOptions {
+        AddOptions {
+            replace_existing,
+            ..add_options(repo, manifest, artifact)
         }
     }
 
@@ -768,6 +807,29 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("already exists"), "{error}");
+    }
+
+    #[test]
+    fn replace_existing_artifact_for_same_os_and_arch() {
+        let (_temp, repo, manifest, key) = setup();
+        let first_artifact = manifest.with_file_name("first.bin");
+        let second_artifact = manifest.with_file_name("second.bin");
+        fs::write(&first_artifact, b"first").unwrap();
+        fs::write(&second_artifact, b"second").unwrap();
+
+        add_artifact(&add_options(&repo, &manifest, &first_artifact), &key).unwrap();
+        add_artifact(
+            &add_options_with_replace(&repo, &manifest, &second_artifact, true),
+            &key,
+        )
+        .unwrap();
+
+        let stored: FeatureManifest = serde_json::from_slice(
+            &fs::read(repo.join("pool/agent/1.2.3/feature.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(stored.artifacts.len(), 1);
+        assert_eq!(stored.artifacts[0].sha256, sha256_hex(b"second"));
     }
 
     #[test]
