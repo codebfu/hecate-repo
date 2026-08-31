@@ -166,10 +166,10 @@ cd ${remote_dir}
 get -e repo.toml -o ${work_dir}/repo.toml
 mirror --verbose dists ${work_dir}/dists
 mirror --verbose \
-  --include-glob '*/' \
-  --include-glob 'feature.json' \
-  --include-glob 'feature.json.sig' \
-  --exclude-glob '*' \
+  --exclude-glob '*.deb' \
+  --exclude-glob '*.msi' \
+  --exclude-glob '*.pkg' \
+  --exclude-glob '*.sha256' \
   pool ${work_dir}/pool
 EOF
   remove_orphan_pool_versions "${work_dir}"
