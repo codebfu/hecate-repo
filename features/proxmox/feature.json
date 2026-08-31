@@ -1,0 +1,18 @@
+{
+  "id": "proxmox",
+  "kind": "helper",
+  "version": "0.0.0",
+  "platforms": ["linux"],
+  "commands": [
+    {"name":"proxmox.info","description":"Probe Proxmox console helper capability and host information","risk_level":"low","input_schema":{"type":"object","properties":{}},"requires_approval":false},
+    {"name":"proxmox.vm.list","description":"List Proxmox virtual machines available for console access","risk_level":"low","input_schema":{"type":"object","properties":{}},"requires_approval":false},
+    {"name":"proxmox.console.open","description":"Open a persistent Proxmox virtual machine console session","risk_level":"high","input_schema":{"type":"object","required":["vmid"],"properties":{"vmid":{"type":"integer"},"fps":{"type":"integer"},"format":{"type":"string"},"max_duration_secs":{"type":"integer"},"session_id":{"type":"string"}}},"requires_approval":true},
+    {"name":"proxmox.console.frame","description":"Fetch the latest frame from a Proxmox console session","risk_level":"high","input_schema":{"type":"object","required":["session_id"],"properties":{"session_id":{"type":"string"}}},"requires_approval":true},
+    {"name":"proxmox.console.input","description":"Send input events to a Proxmox console session","risk_level":"high","input_schema":{"type":"object","required":["session_id"],"properties":{"session_id":{"type":"string"},"events":{"type":"array"}}},"requires_approval":true},
+    {"name":"proxmox.console.close","description":"Close a Proxmox console session","risk_level":"high","input_schema":{"type":"object","required":["session_id"],"properties":{"session_id":{"type":"string"}}},"requires_approval":true}
+  ],
+  "mcp": {"skills": ["proxmox-console"], "rules": []},
+  "artifacts": [],
+  "helper": {"binary":"hecate-lampad-proxmox","privilege":"system","socket":"proxmox.sock","tags":["proxmox"]},
+  "depends_on": [{"id":"agent","min_version":"1.0.0"}]
+}

@@ -1,0 +1,22 @@
+#!/bin/bash
+set -euo pipefail
+DOCROOT=/var/www/hecate-repo
+cmd="${SSH_ORIGINAL_COMMAND:-}"
+
+# CI lock: mkdir + flock held for the lifetime of the SSH session
+if [[ "$cmd" == mkdir\ -p\ * && "$cmd" == *flock* && "$cmd" == *"$DOCROOT"* ]]; then
+  exec bash -c "$cmd"
+fi
+if [[ "$cmd" == flock* && "$cmd" == *"$DOCROOT"* ]]; then
+  exec bash -c "$cmd"
+fi
+if [[ "$cmd" == mkdir\ -p\ * && "$cmd" == *"$DOCROOT"* ]]; then
+  exec bash -c "$cmd"
+fi
+# rsync server mode; destination must stay under DOCROOT
+if [[ "$cmd" == rsync\ --server* && "$cmd" == *"$DOCROOT"* ]]; then
+  exec bash -c "$cmd"
+fi
+
+echo "rejected command: $cmd" >&2
+exit 1

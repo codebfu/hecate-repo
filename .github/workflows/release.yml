@@ -1,0 +1,117 @@
+# Copyright (C) 2026 Gaultier HUBERT
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Release (binaries)
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      reindex_only:
+        description: Skip release assets; reindex and republish dists/ with this ref's CLI
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Linux CLI is the source of truth for prod reindex (index format migrations).
+  build-linux-cli:
+    if: >-
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master pin
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-gnu
+      - name: Build release binary
+        run: cargo build --release --locked --target x86_64-unknown-linux-gnu
+      - name: Stage asset
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-gnu/release/hecate-repo dist/hecate-repo-linux-x86_64
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          files: dist/hecate-repo-linux-x86_64
+          fail_on_unmatched_files: true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hecate-repo-linux-cli
+          path: dist/hecate-repo-linux-x86_64
+          if-no-files-found: error
+
+  release-windows:
+    if: >-
+      github.event_name == 'release' &&
+      startsWith(github.event.release.tag_name, 'v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master pin
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - name: Build release binary
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc
+      - name: Stage asset
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/x86_64-pc-windows-msvc/release/hecate-repo.exe dist/hecate-repo-windows-x86_64.exe
+      - name: Upload asset
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          files: dist/hecate-repo-windows-x86_64.exe
+          fail_on_unmatched_files: true
+
+  reindex:
+    needs: build-linux-cli
+    if: needs.build-linux-cli.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+      - name: Download linux CLI
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v8.0.1
+        with:
+          name: hecate-repo-linux-cli
+          path: dist
+      - name: Install publish tools
+        run: sudo apt-get update && sudo apt-get install -y lftp
+      - name: Reindex and republish official feature repository
+        env:
+          HECATE_REPO_BIN: ${{ github.workspace }}/dist/hecate-repo-linux-x86_64
+          HECATE_REPO_SIGNING_KEY_B64: ${{ secrets.HECATE_REPO_SIGNING_KEY_B64 }}
+          HECATE_REPO_FTP_HOST: ${{ vars.HECATE_REPO_FTP_HOST }}
+          HECATE_REPO_FTP_USER: ${{ secrets.HECATE_REPO_FTP_USER }}
+          HECATE_REPO_FTP_PASSWORD: ${{ secrets.HECATE_REPO_FTP_PASSWORD }}
+          HECATE_REPO_FTP_REMOTE_DIR: ${{ vars.HECATE_REPO_FTP_REMOTE_DIR }}
+          HECATE_REPO_FTP_PORT: ${{ vars.HECATE_REPO_FTP_PORT }}
+          HECATE_REPO_FTP_PROTOCOL: ${{ vars.HECATE_REPO_FTP_PROTOCOL }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -n "${HECATE_REPO_FTP_HOST:-}" ]] || missing+=("vars.HECATE_REPO_FTP_HOST")
+          [[ -n "${HECATE_REPO_FTP_USER:-}" ]] || missing+=("secrets.HECATE_REPO_FTP_USER")
+          [[ -n "${HECATE_REPO_FTP_PASSWORD:-}" ]] || missing+=("secrets.HECATE_REPO_FTP_PASSWORD")
+          [[ -n "${HECATE_REPO_SIGNING_KEY_B64:-}" ]] || missing+=("secrets.HECATE_REPO_SIGNING_KEY_B64")
+          if ((${#missing[@]})); then
+            echo "Missing GitHub Actions config on codebfu/hecate-repo: ${missing[*]}" >&2
+            echo "Copy the same HECATE_REPO_* secrets/vars used by hecate-lampad publish workflows." >&2
+            exit 1
+          fi
+          chmod +x "${HECATE_REPO_BIN}"
+          bash ci/republish-index-ftp.sh

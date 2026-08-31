@@ -1,0 +1,30 @@
+{
+  "id": "agent",
+  "kind": "agent",
+  "version": "0.0.0",
+  "platforms": ["linux", "windows", "macos"],
+  "commands": [
+    {"name":"system.info","description":"Read-only system information","risk_level":"low","input_schema":{"type":"object","properties":{},"additionalProperties":false},"requires_approval":false},
+    {"name":"shell.run","description":"Execute explicit argv via execve","risk_level":"high","input_schema":{"type":"object","required":["argv"],"properties":{"argv":{"type":"array","items":{"type":"string"},"minItems":1},"cwd":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"timeout_secs":{"type":"integer","minimum":1,"maximum":3600},"elevated":{"type":"boolean","description":"Run with root/admin privileges using the platform elevation backend (sudo on Linux/macOS, admin service token on Windows). Requires elevation_policy on the AI identity."}},"additionalProperties":false},"requires_approval":true},
+    {"name":"file.pull","description":"Read a file on the machine and stage it for AI download","risk_level":"high","input_schema":{"type":"object","required":["path"],"properties":{"path":{"type":"string"}},"additionalProperties":false},"requires_approval":true},
+    {"name":"file.push","description":"Write a staged file to a path on the machine","risk_level":"high","input_schema":{"type":"object","required":["dest_path","artifact_id","sha256"],"properties":{"dest_path":{"type":"string"},"artifact_id":{"type":"string","format":"uuid"},"sha256":{"type":"string"},"mode":{"type":"string"}},"additionalProperties":false},"requires_approval":true},
+    {"name":"file.copy","description":"Copy a file on the machine","risk_level":"high","input_schema":{"type":"object","required":["src","dest"],"properties":{"src":{"type":"string"},"dest":{"type":"string"}},"additionalProperties":false},"requires_approval":true},
+    {"name":"file.move","description":"Move a file on the machine","risk_level":"high","input_schema":{"type":"object","required":["src","dest"],"properties":{"src":{"type":"string"},"dest":{"type":"string"}},"additionalProperties":false},"requires_approval":true},
+    {"name":"file.rename","description":"Rename a file in its parent directory","risk_level":"high","input_schema":{"type":"object","required":["path","new_name"],"properties":{"path":{"type":"string"},"new_name":{"type":"string"}},"additionalProperties":false},"requires_approval":true},
+    {"name":"file.delete","description":"Delete a file on the machine","risk_level":"high","input_schema":{"type":"object","required":["path"],"properties":{"path":{"type":"string"}},"additionalProperties":false},"requires_approval":true},
+    {"name":"folder.mkdir","description":"Create a single directory on the machine","risk_level":"high","input_schema":{"type":"object","required":["path"],"properties":{"path":{"type":"string"},"mode":{"type":"string"}},"additionalProperties":false},"requires_approval":true},
+    {"name":"folder.rmdir","description":"Remove an empty directory on the machine","risk_level":"high","input_schema":{"type":"object","required":["path"],"properties":{"path":{"type":"string"}},"additionalProperties":false},"requires_approval":true},
+    {"name":"folder.rename","description":"Rename a directory in its parent directory","risk_level":"high","input_schema":{"type":"object","required":["path","new_name"],"properties":{"path":{"type":"string"},"new_name":{"type":"string"}},"additionalProperties":false},"requires_approval":true},
+    {"name":"folder.move","description":"Move a directory on the machine","risk_level":"high","input_schema":{"type":"object","required":["src","dest"],"properties":{"src":{"type":"string"},"dest":{"type":"string"}},"additionalProperties":false},"requires_approval":true},
+    {"name":"folder.copy","description":"Recursively copy a directory on the machine","risk_level":"high","input_schema":{"type":"object","required":["src","dest"],"properties":{"src":{"type":"string"},"dest":{"type":"string"}},"additionalProperties":false},"requires_approval":true},
+    {"name":"remote.download","description":"Download a URL from the machine network","risk_level":"high","input_schema":{"type":"object","required":["url"],"properties":{"url":{"type":"string"},"dest_path":{"type":"string"},"headers":{"type":"object","additionalProperties":{"type":"string"}}},"additionalProperties":false},"requires_approval":true},
+    {"name":"agent.update","description":"Download and apply the latest signed agent release from the server","risk_level":"high","input_schema":{"type":"object","properties":{},"additionalProperties":false},"requires_approval":true},
+    {"name":"system.reboot","description":"Reboot the machine OS; completes after the agent goes offline then online again","risk_level":"high","input_schema":{"type":"object","properties":{},"additionalProperties":false},"requires_approval":true},
+    {"name":"helper.install","description":"Install a missing signed helper package when the agent is already enrolled","risk_level":"high","input_schema":{"type":"object","properties":{"component":{"type":"string","enum":["desktop","proxmox"]}},"required":["component"],"additionalProperties":false},"requires_approval":true},
+    {"name":"plugin.list","description":"List plugins available to the agent","risk_level":"low","input_schema":{"type":"object","properties":{},"additionalProperties":false},"requires_approval":false}
+  ],
+  "mcp": {"skills": [], "rules": []},
+  "artifacts": [],
+  "helper": null,
+  "depends_on": []
+}
