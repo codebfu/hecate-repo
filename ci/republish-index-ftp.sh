@@ -115,6 +115,13 @@ mirror --verbose \
   pool ${work_dir}/pool
 EOF
 
+while IFS= read -r -d '' version_dir; do
+  if [[ ! -f "${version_dir}/feature.json" ]]; then
+    echo "Removing orphan pool version without feature.json: ${version_dir}"
+    rm -rf "${version_dir}"
+  fi
+done < <(find "${work_dir}/pool" -mindepth 2 -maxdepth 2 -type d -print0 2>/dev/null || true)
+
 if [[ ! -e "${work_dir}/repo.toml" ]]; then
   echo "Remote repository missing repo.toml under ${remote_dir}; nothing to reindex" >&2
   exit 1

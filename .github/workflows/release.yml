@@ -45,27 +45,16 @@ jobs:
         run: |
           mkdir -p dist
           cp target/x86_64-unknown-linux-gnu/release/hecate-repo dist/hecate-repo-linux-x86_64
-      - name: Remove stale release assets
+      - name: Upload release asset
         if: >-
           (github.event_name == 'release') ||
           (github.event_name == 'workflow_dispatch' && inputs.reindex_only == false)
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
-          gh release view "${RELEASE_TAG}" --json assets -q '.assets[].name' | while read -r name; do
-            [[ -n "${name}" ]] || continue
-            gh release delete-asset "${RELEASE_TAG}" "${name}" -y || true
-          done
-      - name: Upload release asset
-        if: >-
-          (github.event_name == 'release') ||
-          (github.event_name == 'workflow_dispatch' && inputs.reindex_only == false)
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          files: dist/hecate-repo-linux-x86_64
-          fail_on_unmatched_files: true
+          gh release upload "${RELEASE_TAG}" dist/hecate-repo-linux-x86_64 --clobber
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hecate-repo-linux-cli
@@ -93,11 +82,13 @@ jobs:
           mkdir -p dist
           cp target/x86_64-pc-windows-msvc/release/hecate-repo.exe dist/hecate-repo-windows-x86_64.exe
       - name: Upload asset
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          files: dist/hecate-repo-windows-x86_64.exe
-          fail_on_unmatched_files: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "${RELEASE_TAG}" dist/hecate-repo-windows-x86_64.exe --clobber
 
   reindex:
     needs: build-linux-cli

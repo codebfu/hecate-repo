@@ -148,21 +148,31 @@ EOF
   fi
 }
 
-# Metadata-only pull: exclude installer blobs so CI stays fast, but keep every
-# feature.json so multi-platform publishes merge and older versions stay indexed.
+# Metadata-only pull: keep feature manifests without downloading installer blobs.
+remove_orphan_pool_versions() {
+  local root="$1"
+  [[ -d "${root}/pool" ]] || return 0
+  while IFS= read -r -d '' version_dir; do
+    if [[ ! -f "${version_dir}/feature.json" ]]; then
+      echo "Removing orphan pool version without feature.json: ${version_dir}"
+      rm -rf "${version_dir}"
+    fi
+  done < <(find "${root}/pool" -mindepth 2 -maxdepth 2 -type d -print0 2>/dev/null || true)
+}
+
 ftp_download_tree() {
   run_lftp <<EOF
 cd ${remote_dir}
 get -e repo.toml -o ${work_dir}/repo.toml
 mirror --verbose dists ${work_dir}/dists
 mirror --verbose \
-  --exclude-glob '*.deb' \
-  --exclude-glob '*.msi' \
-  --exclude-glob '*.pkg' \
-  --exclude-glob '*.sha256' \
-  --exclude-glob '*.sig' \
+  --include-glob '*/' \
+  --include-glob 'feature.json' \
+  --include-glob 'feature.json.sig' \
+  --exclude-glob '*' \
   pool ${work_dir}/pool
 EOF
+  remove_orphan_pool_versions "${work_dir}"
 }
 
 ftp_put_file() {
