@@ -1,6 +1,11 @@
 # hecate-repo
 
-Signed feature repository management CLI
+Signed feature repository management CLI for Hecate agent/helper packages.
+
+## Documentation
+
+- Product docs: [Hecate wiki](https://github.com/codebfu/hecate/wiki) · [Ecosystem](https://github.com/codebfu/hecate/wiki/Ecosystem)
+- Ecosystem index: [docs/ecosystem.md](https://github.com/codebfu/hecate/blob/master/docs/ecosystem.md)
 
 ## Official repository signing key
 
