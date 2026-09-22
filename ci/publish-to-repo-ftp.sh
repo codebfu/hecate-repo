@@ -185,8 +185,11 @@ EOF
 }
 
 acquire_remote_lock() {
-  # Default ~5 minutes. Cancelled CI jobs often leave .publish.lock behind.
-  local tries="${HECATE_REPO_PUBLISH_LOCK_TRIES:-30}"
+  # Default ~10 minutes of waiting. A live multi-platform publish routinely
+  # exceeds a few minutes; only treat the lock as stale on the *final* attempt
+  # (cancelled CI jobs can leave .publish.lock behind). Breaking earlier races
+  # concurrent workflows and can leave pool blobs without matching feature.json.
+  local tries="${HECATE_REPO_PUBLISH_LOCK_TRIES:-60}"
   local break_stale="${HECATE_REPO_PUBLISH_BREAK_STALE_LOCK:-1}"
   local i
   local out
@@ -204,9 +207,20 @@ EOF
       echo "SFTP/FTP authentication failed while acquiring publish lock" >&2
       return 1
     fi
-    if [[ "${break_stale}" == "1" && "${i}" -eq 3 ]]; then
-      echo "Publish lock still held; attempting to remove stale .publish.lock" >&2
+    if [[ "${break_stale}" == "1" && "${i}" -eq "${tries}" ]]; then
+      echo "Publish lock still held after ${tries} attempts; removing presumed-stale .publish.lock" >&2
       release_remote_lock || true
+      if out="$(run_lftp <<EOF 2>&1
+cd ${remote_dir}
+mkdir .publish.lock
+EOF
+)"; then
+        echo "Acquired remote publish lock after stale break"
+        return 0
+      fi
+      echo "${out}" >&2
+      echo "Failed to acquire remote publish lock after stale break" >&2
+      return 1
     fi
     echo "Waiting for remote publish lock (${i}/${tries})..."
     sleep 10

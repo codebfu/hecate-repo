@@ -312,28 +312,30 @@ pub fn add_artifact(options: &AddOptions, key: &SigningKey) -> Result<()> {
 
     let destination_dir = version_dir.join(&options.os).join(&options.arch);
     let destination = destination_dir.join(&filename);
+    let sha256 = sha256_hex(&artifact_bytes);
+    let mut write_blob = true;
     if destination.exists() {
         let existing_bytes = fs::read(&destination).with_context(|| {
             format!("failed to read existing artifact {}", destination.display())
         })?;
-        if sha256_hex(&existing_bytes) == sha256_hex(&artifact_bytes) {
-            regenerate_index(&options.repo, key)?;
-            return Ok(());
-        }
-        if !options.replace_existing {
+        if sha256_hex(&existing_bytes) == sha256 {
+            // Blob already correct on disk (e.g. left by a raced publish). Still
+            // ensure the manifest lists it — never skip feature.json updates.
+            write_blob = false;
+        } else if !options.replace_existing {
             bail!(
                 "artifact destination already exists: {}",
                 destination.display()
             );
-        }
-        fs::remove_file(&destination)?;
-        let sig = signature_path(&destination);
-        if sig.exists() {
-            fs::remove_file(&sig)?;
+        } else {
+            fs::remove_file(&destination)?;
+            let sig = signature_path(&destination);
+            if sig.exists() {
+                fs::remove_file(&sig)?;
+            }
         }
     }
 
-    let sha256 = sha256_hex(&artifact_bytes);
     let update_kind = update_kind_for_feature(&manifest);
     let update_signature = Some(sign_canonical_update(
         key,
@@ -356,8 +358,12 @@ pub fn add_artifact(options: &AddOptions, key: &SigningKey) -> Result<()> {
         .sort_by(|a, b| (&a.os, &a.arch, &a.filename).cmp(&(&b.os, &b.arch, &b.filename)));
 
     fs::create_dir_all(&destination_dir)?;
-    fs::write(&destination, &artifact_bytes)?;
-    write_signature(&destination, key)?;
+    if write_blob {
+        fs::write(&destination, &artifact_bytes)?;
+        write_signature(&destination, key)?;
+    } else if !signature_path(&destination).exists() {
+        write_signature(&destination, key)?;
+    }
     write_signed_json(&manifest_path, &manifest, key)?;
     regenerate_index(&options.repo, key)
 }
@@ -840,6 +846,33 @@ mod tests {
 
         add_artifact(&add_options(&repo, &manifest, &artifact), &key).unwrap();
         add_artifact(&add_options(&repo, &manifest, &artifact), &key).unwrap();
+    }
+
+    #[test]
+    fn restores_manifest_entry_when_blob_already_on_disk() {
+        let (_temp, repo, manifest, key) = setup();
+        let artifact = manifest.with_file_name("orphan.bin");
+        fs::write(&artifact, b"orphan-bytes").unwrap();
+
+        add_artifact(&add_options(&repo, &manifest, &artifact), &key).unwrap();
+        let version_dir = repo.join("pool/agent/1.2.3");
+        let feature_path = version_dir.join("feature.json");
+        let mut stored: FeatureManifest =
+            serde_json::from_slice(&fs::read(&feature_path).unwrap()).unwrap();
+        stored.artifacts.clear();
+        fs::write(&feature_path, serde_json::to_vec_pretty(&stored).unwrap()).unwrap();
+
+        add_artifact(
+            &add_options_with_replace(&repo, &manifest, &artifact, true),
+            &key,
+        )
+        .unwrap();
+
+        let restored: FeatureManifest =
+            serde_json::from_slice(&fs::read(&feature_path).unwrap()).unwrap();
+        assert_eq!(restored.artifacts.len(), 1);
+        assert_eq!(restored.artifacts[0].filename, "orphan.bin");
+        assert_eq!(restored.artifacts[0].sha256, sha256_hex(b"orphan-bytes"));
     }
 
     #[test]
