@@ -145,6 +145,7 @@ pub struct ArtifactIndexEntry {
     pub sha256: String,
     pub size: u64,
     pub path: String,
+    pub installer_type: String,
 }
 
 #[derive(Debug, Clone)]
@@ -156,7 +157,7 @@ pub struct AddOptions {
     pub arch: String,
     pub installer_type: String,
     pub forced_kind: Option<FeatureKind>,
-    /// Replace an existing artifact for the same OS/arch when the payload differs.
+    /// Replace an existing artifact for the same OS/arch/installer_type when the payload differs.
     pub replace_existing: bool,
 }
 
@@ -233,7 +234,7 @@ pub fn add_artifact(options: &AddOptions, key: &SigningKey) -> Result<()> {
     validate_component(&options.arch, "architecture")?;
     if !matches!(
         options.installer_type.as_str(),
-        "deb" | "msi" | "pkg" | "raw"
+        "deb" | "msi" | "pkg" | "rpm" | "raw"
     ) {
         bail!("unsupported installer type: {}", options.installer_type);
     }
@@ -281,17 +282,14 @@ pub fn add_artifact(options: &AddOptions, key: &SigningKey) -> Result<()> {
         incoming
     };
 
-    if let Some(existing_index) = manifest
-        .artifacts
-        .iter()
-        .position(|artifact| artifact.os == options.os && artifact.arch == options.arch)
-    {
+    if let Some(existing_index) = manifest.artifacts.iter().position(|artifact| {
+        artifact.os == options.os
+            && artifact.arch == options.arch
+            && artifact.installer_type == options.installer_type
+    }) {
         let incoming_sha = sha256_hex(&artifact_bytes);
         let existing = &manifest.artifacts[existing_index];
-        if existing.sha256 == incoming_sha
-            && existing.filename == filename
-            && existing.installer_type == options.installer_type
-        {
+        if existing.sha256 == incoming_sha && existing.filename == filename {
             // Idempotent re-publish: still ensure fleet update_signature is present.
             let updated = backfill_manifest_update_signatures(&mut manifest, key)?;
             if updated {
@@ -302,8 +300,12 @@ pub fn add_artifact(options: &AddOptions, key: &SigningKey) -> Result<()> {
         }
         if !options.replace_existing {
             bail!(
-                "an artifact already exists for {} {} {} {}",
-                manifest.id, manifest.version, options.os, options.arch
+                "an artifact already exists for {} {} {} {} ({})",
+                manifest.id,
+                manifest.version,
+                options.os,
+                options.arch,
+                options.installer_type
             );
         }
         let replaced = manifest.artifacts.remove(existing_index);
@@ -355,7 +357,10 @@ pub fn add_artifact(options: &AddOptions, key: &SigningKey) -> Result<()> {
     manifest.artifacts.push(artifact);
     manifest
         .artifacts
-        .sort_by(|a, b| (&a.os, &a.arch, &a.filename).cmp(&(&b.os, &b.arch, &b.filename)));
+        .sort_by(|a, b| {
+            (&a.os, &a.arch, &a.installer_type, &a.filename)
+                .cmp(&(&b.os, &b.arch, &b.installer_type, &b.filename))
+        });
 
     fs::create_dir_all(&destination_dir)?;
     if write_blob {
@@ -545,6 +550,7 @@ pub fn regenerate_index(repo: &Path, key: &SigningKey) -> Result<()> {
                         filename: artifact.filename,
                         sha256: artifact.sha256,
                         size: artifact.size,
+                        installer_type: artifact.installer_type,
                     })
                     .collect();
                 VersionIndexEntry {
@@ -801,7 +807,7 @@ mod tests {
     }
 
     #[test]
-    fn refuses_duplicate_os_and_arch() {
+    fn refuses_duplicate_os_arch_and_installer_type() {
         let (_temp, repo, manifest, key) = setup();
         let first_artifact = manifest.with_file_name("first.bin");
         let second_artifact = manifest.with_file_name("second.bin");
@@ -813,6 +819,36 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("already exists"), "{error}");
+    }
+
+    #[test]
+    fn allows_same_os_arch_with_different_installer_types() {
+        let (_temp, repo, manifest, key) = setup();
+        let deb = manifest.with_file_name("pkg.deb");
+        let rpm = manifest.with_file_name("pkg.rpm");
+        fs::write(&deb, b"deb-bytes").unwrap();
+        fs::write(&rpm, b"rpm-bytes").unwrap();
+
+        let mut deb_opts = add_options(&repo, &manifest, &deb);
+        deb_opts.installer_type = "deb".into();
+        let mut rpm_opts = add_options(&repo, &manifest, &rpm);
+        rpm_opts.installer_type = "rpm".into();
+
+        add_artifact(&deb_opts, &key).unwrap();
+        add_artifact(&rpm_opts, &key).unwrap();
+
+        let stored: FeatureManifest = serde_json::from_slice(
+            &fs::read(repo.join("pool/agent/1.2.3/feature.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(stored.artifacts.len(), 2);
+        let types: Vec<_> = stored
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.installer_type.as_str())
+            .collect();
+        assert!(types.contains(&"deb"));
+        assert!(types.contains(&"rpm"));
     }
 
     #[test]
