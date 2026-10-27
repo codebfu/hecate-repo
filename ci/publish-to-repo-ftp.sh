@@ -169,6 +169,7 @@ mirror --verbose \
   --exclude-glob '*.deb' \
   --exclude-glob '*.msi' \
   --exclude-glob '*.pkg' \
+  --exclude-glob '*.rpm' \
   --exclude-glob '*.sha256' \
   pool ${work_dir}/pool
 EOF

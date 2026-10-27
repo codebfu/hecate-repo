@@ -78,7 +78,7 @@ struct AddArgs {
     arch: String,
     #[arg(long, value_enum, default_value_t = InstallerType::Raw)]
     installer_type: InstallerType,
-    /// Replace an existing artifact for the same OS/arch when the payload differs.
+    /// Replace an existing artifact for the same OS/arch/installer_type when the payload differs.
     #[arg(long)]
     replace: bool,
 }
@@ -88,6 +88,7 @@ enum InstallerType {
     Deb,
     Msi,
     Pkg,
+    Rpm,
     Raw,
 }
 
@@ -97,6 +98,7 @@ impl InstallerType {
             Self::Deb => "deb",
             Self::Msi => "msi",
             Self::Pkg => "pkg",
+            Self::Rpm => "rpm",
             Self::Raw => "raw",
         }
     }
